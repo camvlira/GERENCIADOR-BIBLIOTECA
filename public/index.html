@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Controle de Biblioteca</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="auth" class="auth" hidden></div>
+
+  <div id="app" class="layout" hidden>
+    <aside class="sidebar">
+      <nav class="menu">
+        <a href="#/inicio" data-menu="inicio">Início</a>
+        <a href="#/livros" data-menu="livros">Livros</a>
+        <a href="#/usuarios" data-menu="usuarios">Usuários</a>
+        <a href="#/emprestimos" data-menu="emprestimos">Empréstimos</a>
+        <a href="#/relatorios/historico" data-menu="relatorios">Relatórios</a>
+      </nav>
+      <a href="#" id="sair" class="sair">Sair</a>
+    </aside>
+    <main id="view" class="content"></main>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
