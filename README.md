@@ -36,9 +36,14 @@ Para voltar aos dados de exemplo, apague a pasta `database` e rode `npm start` d
 
 ## Testes
 
+Na pasta do projeto, rode:
+
 ```bash
+npm install
 npm test
 ```
+
+O `npm install` só precisa ser feito uma vez. Os testes usam um banco na memória, então não alteram o `database/biblioteca.db`.
 
 ## Onde está cada requisito
 
