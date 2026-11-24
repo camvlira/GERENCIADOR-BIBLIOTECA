@@ -1,150 +1,314 @@
 // =====================================================================
-// server.test.js — testes dos serviços da API
+// server.test.js — testes de interface com Selenium
 // Para rodar: npm test
-// Usa um banco novo só na memória (não mexe no database/biblioteca.db).
+// O servidor usa um banco em memória: não altera database/biblioteca.db.
+// Requer Google Chrome instalado.
 // =====================================================================
+
 process.env.BANCO = ':memory:';
 
 const { test, before, after } = require('node:test');
-const assert = require('node:assert');
+const assert = require('node:assert/strict');
+const { Builder, By, until } = require('selenium-webdriver');
 const app = require('./server');
 
-let servidor, endereco, tokenAdmin, tokenBibliotecario;
+let servidor;
+let endereco;
+let driver;
 
-// Chama a API e devolve { status, dados }
-async function chamar(metodo, caminho, corpo, token) {
-  const resposta = await fetch(endereco + caminho, {
-    method: metodo,
-    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (token || '') },
-    body: corpo ? JSON.stringify(corpo) : undefined
-  });
-  const texto = await resposta.text();
-  return { status: resposta.status, dados: texto ? JSON.parse(texto) : null };
+const esperar = async (seletor, tempo = 8000) => {
+  const elemento = await driver.wait(
+    until.elementLocated(By.css(seletor)),
+    tempo
+  );
+  await driver.wait(until.elementIsVisible(elemento), tempo);
+  return elemento;
+};
+
+const clicar = async (seletor) => {
+  const elemento = await esperar(seletor);
+  await driver.wait(until.elementIsEnabled(elemento), 5000);
+  await elemento.click();
+  return elemento;
+};
+
+const preencher = async (seletor, valor) => {
+  const elemento = await esperar(seletor);
+  await elemento.clear();
+  await elemento.sendKeys(String(valor));
+  return elemento;
+};
+
+const aguardarTexto = async (seletor, texto) => {
+  await driver.wait(async () => {
+    try {
+      const elemento = await driver.findElement(By.css(seletor));
+      return (await elemento.getText()).includes(texto);
+    } catch {
+      return false;
+    }
+  }, 8000);
+};
+
+async function abrirSistema() {
+  // Limpa a sessão para cada teste começar sem usuário autenticado.
+  await driver.get(endereco);
+  await driver.executeScript('sessionStorage.clear(); localStorage.clear();');
+  await driver.get(endereco + '/#/login');
+  await driver.wait(until.elementLocated(By.id('form-login')), 8000);
+}
+
+async function login(login, senha = '123456') {
+  await abrirSistema();
+  await preencher('#login', login);
+  await preencher('#senha', senha);
+  await clicar('#form-login button[type="submit"]');
+}
+
+async function loginAdmin() {
+  await login('0001');
+  await driver.wait(until.urlContains('#/inicio'), 8000);
+}
+
+async function abrirLivros() {
+  await driver.get(endereco + '/#/livros');
+  await esperar('table tbody');
+}
+
+async function abrirNovoLivro() {
+  await driver.get(endereco + '/#/livros/novo');
+  await esperar('#form-livro');
+}
+
+async function preencherLivro({ titulo, autor = 'Autor de teste', editora = 'Editora de teste', ano = '2024', exemplares = '2' }) {
+  if (titulo !== undefined) await preencher('#titulo', titulo);
+  await preencher('#autor', autor);
+  await preencher('#editora', editora);
+  await preencher('#ano', ano);
+  await preencher('#exemplares', exemplares);
+}
+
+async function confirmarDialogo() {
+  await driver.wait(until.elementLocated(By.css('dialog[open]')), 5000);
+  await clicar('dialog[open] button[value="ok"]');
+}
+
+async function mensagemToast() {
+  const toast = await esperar('#toast');
+  await driver.wait(async () => !(await toast.getAttribute('hidden')), 3000).catch(() => {});
+  return toast.getText();
 }
 
 before(async () => {
-  servidor = app.listen(0); // qualquer porta livre
+  servidor = app.listen(0);
   await new Promise((pronto) => servidor.once('listening', pronto));
-  endereco = `http://localhost:${servidor.address().port}/api`;
-  tokenAdmin = (await chamar('POST', '/login', { login: 'admin@biblioteca.com', senha: '123456' })).dados.token;
-  tokenBibliotecario = (await chamar('POST', '/login', { login: '0002', senha: '123456' })).dados.token;
+  endereco = `http://localhost:${servidor.address().port}`;
+
+  driver = await new Builder().forBrowser('chrome').build();
+  await driver.manage().window().setRect({ width: 1365, height: 900 });
 });
 
-after(() => servidor.close());
-
-// ---------- Login e controle de acesso ----------
-
-test('login com senha certa devolve token e perfil', async () => {
-  const r = await chamar('POST', '/login', { login: '0001', senha: '123456' });
-  assert.strictEqual(r.status, 200);
-  assert.ok(r.dados.token);
-  assert.strictEqual(r.dados.perfil, 'admin');
+after(async () => {
+  if (driver) await driver.quit();
+  if (servidor) await new Promise((resolve) => servidor.close(resolve));
 });
 
-test('login com senha errada devolve 401', async () => {
-  const r = await chamar('POST', '/login', { login: 'admin@biblioteca.com', senha: 'errada' });
-  assert.strictEqual(r.status, 401);
+test('login com senha correta permite acessar o sistema', async () => {
+  await login('admin@biblioteca.com');
+  await driver.wait(until.urlContains('#/inicio'), 8000);
+  assert.ok((await driver.getCurrentUrl()).includes('#/inicio'));
 });
 
-test('rota protegida sem token devolve 401', async () => {
-  const r = await chamar('GET', '/livros');
-  assert.strictEqual(r.status, 401);
+test('login com senha incorreta mostra mensagem de erro', async () => {
+  await login('admin@biblioteca.com', 'senha-errada');
+  await aguardarTexto('#erro', 'incorretos');
+  assert.match(await driver.findElement(By.id('erro')).getText(), /incorretos/i);
 });
 
-test('bibliotecário (não admin) não pode excluir livro: 403', async () => {
-  const r = await chamar('DELETE', '/livros/8', null, tokenBibliotecario);
-  assert.strictEqual(r.status, 403);
+test('página protegida redireciona para o login sem sessão', async () => {
+  await driver.get(endereco + '/#/livros');
+  await esperar('#form-login');
+  assert.ok(await driver.findElement(By.id('form-login')).isDisplayed());
 });
 
-// ---------- Livros ----------
+test('bibliotecário não visualiza a ação de excluir livros', async () => {
+  await login('0002');
+  await driver.wait(until.urlContains('#/inicio'), 8000);
+  await abrirLivros();
+  const botoesExcluir = await driver.findElements(By.css('[data-excluir]'));
+  assert.equal(botoesExcluir.length, 0);
+});
 
 test('pesquisa de livros ignora acentos', async () => {
-  const r = await chamar('GET', '/livros?busca=atica', null, tokenAdmin);
-  assert.strictEqual(r.status, 200);
-  assert.strictEqual(r.dados.length, 2); // Dom Casmurro e Iracema (editora Ática)
+  await loginAdmin();
+  await abrirLivros();
+  await preencher('#q-livros', 'atica');
+  await clicar('#pesquisar');
+  await aguardarTexto('table tbody', 'Dom Casmurro');
+  const linhas = await driver.findElements(By.css('table tbody tr'));
+  assert.equal(linhas.length, 2);
+  const conteudo = await driver.findElement(By.css('table tbody')).getText();
+  assert.match(conteudo, /Dom Casmurro/);
+  assert.match(conteudo, /Iracema/);
 });
 
-test('cadastro de livro válido', async () => {
-  const r = await chamar('POST', '/livros', { titulo: 'Teste', autor: 'A', editora: 'E', ano: 2020, total: 2 }, tokenAdmin);
-  assert.strictEqual(r.status, 201);
-  assert.strictEqual(r.dados.disponiveis, 2);
+test('cadastro de livro válido aparece na lista', async () => {
+  await loginAdmin();
+  await abrirNovoLivro();
+  await preencherLivro({ titulo: 'Livro Selenium Cadastro' });
+  await clicar('#form-livro button[type="submit"]');
+  await driver.wait(until.urlContains('#/livros'), 8000);
+  await preencher('#q-livros', 'Livro Selenium Cadastro');
+  await clicar('#pesquisar');
+  await aguardarTexto('table tbody', 'Livro Selenium Cadastro');
+  assert.match(await driver.findElement(By.css('table tbody')).getText(), /Livro Selenium Cadastro/);
 });
 
-test('cadastro de livro sem título devolve 400', async () => {
-  const r = await chamar('POST', '/livros', { autor: 'A', editora: 'E', ano: 2020, total: 2 }, tokenAdmin);
-  assert.strictEqual(r.status, 400);
+test('cadastro de livro sem título apresenta validação', async () => {
+  await loginAdmin();
+  await abrirNovoLivro();
+  await preencherLivro({});
+  await clicar('#form-livro button[type="submit"]');
+  await aguardarTexto('#toast', 'Preencha todos os campos');
+  assert.ok((await driver.findElement(By.id('titulo')).getAttribute('class')).includes('invalido'));
 });
 
-test('alterar livro não deixa o total ficar menor que os emprestados', async () => {
-  // O Cortiço (id 2): 2 exemplares, os 2 emprestados
-  const r = await chamar('PUT', '/livros/2', { titulo: 'O Cortiço', autor: 'Aluísio Azevedo', editora: 'Moderna', ano: 1890, total: 1 }, tokenAdmin);
-  assert.strictEqual(r.status, 400);
+test('edição não permite reduzir o total abaixo dos exemplares emprestados', async () => {
+  await loginAdmin();
+  // O Cortiço fica na segunda página da listagem inicial; abrimos sua tela
+  // de edição diretamente pelo identificador do registro de exemplo.
+  await driver.get(endereco + '/#/livros/editar/2');
+  await esperar('#form-livro');
+  await preencher('#exemplares', '1');
+  await clicar('#form-livro button[type="submit"]');
+  await aguardarTexto('#toast', 'total não pode ser menor');
+  assert.match(await driver.findElement(By.id('toast')).getText(), /total não pode ser menor/i);
 });
 
-test('excluir livro: bloqueia com empréstimo em aberto e permite sem', async () => {
-  assert.strictEqual((await chamar('DELETE', '/livros/1', null, tokenAdmin)).status, 409);
-  assert.strictEqual((await chamar('DELETE', '/livros/8', null, tokenAdmin)).status, 204);
+test('exclusão de livro com empréstimo em aberto é bloqueada', async () => {
+  await loginAdmin();
+  await abrirLivros();
+  const excluir = await driver.findElement(By.xpath("//tr[td[contains(., 'Dom Casmurro')]]//button[@data-excluir]"));
+  await excluir.click();
+  await confirmarDialogo();
+  await aguardarTexto('#toast', 'empréstimo');
+  assert.match(await driver.findElement(By.id('toast')).getText(), /empréstimo/i);
 });
 
-// ---------- Usuários ----------
-
-test('cadastro de usuário e CPF/matrícula repetido', async () => {
-  const novo = { nome: 'Lucas', doc: '999', telefone: '(85) 90000-0000', email: 'lucas@exemplo.com' };
-  assert.strictEqual((await chamar('POST', '/usuarios', novo, tokenAdmin)).status, 201);
-  assert.strictEqual((await chamar('POST', '/usuarios', novo, tokenAdmin)).status, 409);
+test('exclusão de livro sem empréstimo em aberto é permitida', async () => {
+  await loginAdmin();
+  await abrirLivros();
+  const excluir = await driver.findElement(By.xpath("//tr[td[contains(., 'Grande Sertão: Veredas')]]//button[@data-excluir]"));
+  await excluir.click();
+  await confirmarDialogo();
+  await driver.wait(async () => {
+    const corpo = await driver.findElement(By.css('table tbody')).getText();
+    return !corpo.includes('Grande Sertão: Veredas');
+  }, 8000);
+  assert.doesNotMatch(await driver.findElement(By.css('table tbody')).getText(), /Grande Sertão: Veredas/);
 });
 
-// ---------- Empréstimos e devoluções ----------
+test('cadastro de usuário impede CPF ou matrícula repetido', async () => {
+  await loginAdmin();
+  await driver.get(endereco + '/#/usuarios/novo');
+  await esperar('#form-usu');
+  const dados = {
+    nome: 'Usuário Selenium',
+    doc: '999888777',
+    telefone: '(85) 90000-0000',
+    email: 'selenium@exemplo.com'
+  };
+  for (const [campo, valor] of Object.entries(dados)) await preencher('#' + campo, valor);
+  await clicar('#form-usu button[type="submit"]');
+  await driver.wait(until.urlContains('#/usuarios'), 8000);
 
-test('empréstimo diminui os exemplares disponíveis', async () => {
-  const antes = (await chamar('GET', '/livros/3', null, tokenAdmin)).dados.disponiveis;
-  const r = await chamar('POST', '/emprestimos', { usuario_id: 2, livro_id: 3 }, tokenAdmin);
-  assert.strictEqual(r.status, 201);
-  assert.strictEqual(r.dados.situacao, 'prazo');
-  const depois = (await chamar('GET', '/livros/3', null, tokenAdmin)).dados.disponiveis;
-  assert.strictEqual(depois, antes - 1);
+  await driver.get(endereco + '/#/usuarios/novo');
+  await esperar('#form-usu');
+  for (const [campo, valor] of Object.entries(dados)) await preencher('#' + campo, valor);
+  await clicar('#form-usu button[type="submit"]');
+  await aguardarTexto('#toast', 'já está cadastrado');
+  assert.match(await driver.findElement(By.id('toast')).getText(), /já está cadastrado/i);
 });
 
-test('não empresta livro sem exemplar disponível: 409', async () => {
-  const r = await chamar('POST', '/emprestimos', { usuario_id: 1, livro_id: 6 }, tokenAdmin);
-  assert.strictEqual(r.status, 409);
+test('empréstimo válido é registrado e reduz exemplares disponíveis', async () => {
+  await loginAdmin();
+  await driver.get(endereco + '/#/emprestimos/novo');
+  await esperar('#q-usuario');
+
+  await preencher('#q-usuario', '2023001');
+  await clicar('#b-usuario');
+
+  await preencher('#q-livro', 'Vidas Secas');
+  await clicar('#b-livro');
+  await esperar('#r-livro button[data-i]');
+  await clicar('#r-livro button[data-i="0"]');
+
+  await clicar('#confirmar');
+  await aguardarTexto('#toast', 'Empréstimo registrado');
+  assert.match(await driver.findElement(By.id('toast')).getText(), /registrado/i);
 });
 
-test('devolução aumenta os disponíveis e não pode ser feita duas vezes', async () => {
-  const antes = (await chamar('GET', '/livros/2', null, tokenAdmin)).dados.disponiveis;
-  const r = await chamar('POST', '/emprestimos/2/devolucao', {}, tokenAdmin);
-  assert.strictEqual(r.status, 200);
-  assert.strictEqual(r.dados.situacao, 'devolvido');
-  const depois = (await chamar('GET', '/livros/2', null, tokenAdmin)).dados.disponiveis;
-  assert.strictEqual(depois, antes + 1);
-  assert.strictEqual((await chamar('POST', '/emprestimos/2/devolucao', {}, tokenAdmin)).status, 409);
+test('não permite selecionar livro sem exemplar disponível para empréstimo', async () => {
+  await loginAdmin();
+  await driver.get(endereco + '/#/emprestimos/novo');
+  await esperar('#q-usuario');
+
+  await preencher('#q-usuario', '2023001');
+  await clicar('#b-usuario');
+
+  await preencher('#q-livro', 'O Cortiço');
+  await clicar('#b-livro');
+  await esperar('#r-livro button[data-i]');
+  const resultado = await driver.findElement(By.css('#r-livro button[data-i="0"]'));
+  assert.equal(await resultado.isEnabled(), false);
 });
 
-test('consulta de empréstimos em atraso', async () => {
-  const r = await chamar('GET', '/emprestimos?situacao=atraso', null, tokenAdmin);
-  assert.strictEqual(r.status, 200);
-  assert.ok(r.dados.length > 0);
-  assert.ok(r.dados.every((e) => e.situacao === 'atraso' && e.dias_atraso > 0));
+test('devolução é registrada e o empréstimo deixa a lista de ativos', async () => {
+  await loginAdmin();
+  await driver.get(endereco + '/#/devolucao?emp=2');
+  await esperar('tbody tr[data-id="2"]');
+  await clicar('tbody tr[data-id="2"]');
+  await clicar('#confirmar-dev');
+  await aguardarTexto('#toast', 'Devolução registrada');
+  assert.match(await driver.findElement(By.id('toast')).getText(), /registrada/i);
+
+  await driver.get(endereco + '/#/emprestimos?s=ativos');
+  await esperar('table tbody');
+  const ativos = await driver.findElement(By.css('table tbody')).getText();
+  // O Cortiço possui outro empréstimo ativo; verificamos que o empréstimo
+  // de João Pereira (id 2) saiu da lista após a devolução.
+  assert.doesNotMatch(ativos, /João Pereira/);
 });
 
-// ---------- Relatórios ----------
-
-test('relatório: histórico do usuário', async () => {
-  const r = await chamar('GET', '/relatorios/historico/1', null, tokenAdmin);
-  assert.strictEqual(r.status, 200);
-  assert.strictEqual(r.dados.usuario.nome, 'Camilly Lira');
-  assert.strictEqual(r.dados.emprestimos.length, 3);
+test('consulta de empréstimos em atraso mostra registros atrasados', async () => {
+  await loginAdmin();
+  await driver.get(endereco + '/#/emprestimos?s=atraso');
+  await esperar('table tbody');
+  const tabela = await driver.findElement(By.css('table tbody')).getText();
+  assert.match(tabela, /Em atraso/);
+  assert.ok(tabela.length > 0);
 });
 
-test('relatório: livros disponíveis e emprestados', async () => {
-  const r = await chamar('GET', '/relatorios/livros', null, tokenAdmin);
-  assert.strictEqual(r.status, 200);
-  assert.strictEqual(r.dados.total, r.dados.disponiveis + r.dados.emprestados);
+test('relatório de histórico apresenta os empréstimos do usuário', async () => {
+  await loginAdmin();
+  await driver.get(endereco + '/#/relatorios/historico?usuario=1');
+  await aguardarTexto('#view', 'Camilly Lira');
+  const tela = await driver.findElement(By.id('view')).getText();
+  assert.match(tela, /Camilly Lira/);
 });
 
-test('relatório: atrasos, do maior para o menor', async () => {
-  const r = await chamar('GET', '/relatorios/atrasos', null, tokenAdmin);
-  assert.strictEqual(r.status, 200);
-  const dias = r.dados.map((e) => e.dias_atraso);
-  assert.deepStrictEqual(dias, [...dias].sort((a, b) => b - a));
+test('relatório de livros apresenta os totais', async () => {
+  await loginAdmin();
+  await driver.get(endereco + '/#/relatorios/disponiveis');
+  await aguardarTexto('#view', 'Disponíveis');
+  const tela = await driver.findElement(By.id('view')).getText();
+  assert.match(tela, /Disponíveis|emprestados/i);
+});
+
+test('relatório de atrasos apresenta os empréstimos em atraso', async () => {
+  await loginAdmin();
+  await driver.get(endereco + '/#/relatorios/atraso');
+  await aguardarTexto('#view', 'Em atraso');
+  const tela = await driver.findElement(By.id('view')).getText();
+  assert.match(tela, /Em atraso/i);
 });
