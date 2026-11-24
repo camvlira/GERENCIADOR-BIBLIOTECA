@@ -125,7 +125,16 @@ before(async () => {
 
   // Windows: abre o Chrome normalmente.
   // Linux/EC2: executa o Chrome sem janela.
-  const opcoes = new chrome.Options();
+    const opcoes = new chrome.Options();
+
+  // Desliga o gerenciador de senhas do Chrome (o aviso de "senha vazada" trava os testes)
+  opcoes.setUserPreferences({
+    credentials_enable_service: false,
+    'profile.password_manager_enabled': false,
+    'profile.password_manager_leak_detection': false
+  });
+  opcoes.addArguments('--disable-features=PasswordLeakDetection');
+  opcoes.addArguments('--incognito');
 
   if (process.platform === 'linux') {
     opcoes.addArguments('--headless=new');
