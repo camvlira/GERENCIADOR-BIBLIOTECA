@@ -77,7 +77,7 @@ async function login(usuario, senha = '123456') {
 }
 
 async function loginAdmin() {
-  await login('0001');
+  await login('admin@biblioteca.com');
   await driver.wait(until.urlContains('#/inicio'), 8000);
   await aguardarTexto('h1', 'Início');
 }
