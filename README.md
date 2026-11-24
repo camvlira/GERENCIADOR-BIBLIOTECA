@@ -2,11 +2,24 @@
 
 **Equipe:** Camilly Lira e Rafaela Quevedo
 
+## Sobre o projeto
+
+Sistema web para controlar uma biblioteca: cadastro de livros e usuários, empréstimos, devoluções e relatórios.
+
+- **Frontend:** HTML, CSS e JavaScript puro (pasta `public`).
+- **Backend:** Node.js com Express, oferecendo uma API REST com login por token.
+- **Banco de dados:** SQLite.
+- **Testes:** Selenium WebDriver, que testa as telas no Google Chrome.
+- **Nuvem:** o sistema roda em uma instância **EC2 da AWS** (Amazon Linux), acessível pelo navegador no endereço `http://IP_PUBLICO_DA_INSTANCIA:3000`. O código é baixado do GitHub para a instância, e o servidor fica no ar com o **pm2**.
+- **Organização:** Trello para dividir as tarefas, e Git + GitHub para o controle de versão.
+
+O passo a passo da publicação na AWS está na seção [Publicação na AWS (EC2)](#publicação-na-aws-ec2).
+
 ## Arquivos
 
 ```
 server.js          servidor: banco de dados, rotas da API e controle de acesso
-server.test.js     testes dos serviços
+server.test.js     testes de interface com Selenium
 package.json       dependências e comandos
 public/
   index.html       página
@@ -34,16 +47,31 @@ Abra <http://localhost:3000>.
 
 Para voltar aos dados de exemplo, apague a pasta `database` e rode `npm start` de novo.
 
-## Testes
+## Testes (Selenium)
 
-Na pasta do projeto, rode:
+Os testes usam o **Selenium WebDriver**, que abre o Google Chrome e usa o sistema como uma pessoa faria: digita nos campos, clica nos botões e confere o que aparece na tela.
+
+São 18 testes, que cobrem:
+
+- **Login e acesso:** senha correta e incorreta, página protegida sem login e bibliotecário sem o botão de excluir livros.
+- **Livros:** pesquisa sem acento, cadastro válido, cadastro sem título, edição com exemplares emprestados e exclusão (bloqueada com empréstimo em aberto e permitida sem empréstimo).
+- **Usuários:** bloqueio de CPF ou matrícula repetido.
+- **Empréstimos e devoluções:** empréstimo que diminui os exemplares disponíveis, livro sem exemplar disponível, devolução e consulta de empréstimos em atraso.
+- **Relatórios:** histórico do usuário, livros disponíveis e emprestados, e empréstimos em atraso.
+
+Para rodar, precisa do **Google Chrome** instalado. Na pasta do projeto:
 
 ```bash
 npm install
 npm test
 ```
 
-O `npm install` só precisa ser feito uma vez. Os testes usam um banco na memória, então não alteram o `database/biblioteca.db`.
+O `npm install` só precisa ser feito uma vez. Ele instala o Selenium (`selenium-webdriver`), e o Selenium baixa sozinho o driver do Chrome.
+
+- No Windows, a janela do Chrome abre e dá para ver os testes acontecendo.
+- No Linux (por exemplo, na instância EC2), o Chrome roda sem janela (modo *headless*).
+- O gerenciador de senhas do Chrome fica desligado durante os testes, porque o aviso de "senha vazada" (a senha de teste é `123456`) travava o navegador.
+- Os testes usam um banco na memória, então não alteram o `database/biblioteca.db`.
 
 ## Onde está cada requisito
 
@@ -54,8 +82,24 @@ O `npm install` só precisa ser feito uma vez. Os testes usam um banco na memór
 | Autenticação | `server.js`, rota `/api/login` (gera um token) e função `exigirLogin` |
 | Autorização | `server.js`, função `exigirAdmin` (só o admin exclui livros) |
 | SGBD SQLite | `server.js`, parte "Banco de dados" |
-| Testes formais | `server.test.js` |
+| Testes formais | `server.test.js` (testes de interface com Selenium) |
 | Controle de versão | Git + GitHub (abaixo) |
+| Organização da equipe | Trello (abaixo) |
+| Hospedagem na nuvem | AWS EC2, com o servidor no ar pelo pm2 (abaixo) |
+
+## Organização da equipe (Trello)
+
+A equipe organizou o trabalho no **Trello**, no quadro **Gerenciador de Biblioteca**, com as duas integrantes como membros. Cada tarefa é um cartão. Os cartões passam pelas listas conforme o trabalho anda, e cada um tem uma checklist com os passos da tarefa.
+
+| Lista | Para que serve | Cartões |
+|---|---|---|
+| **Informações** | Referências do projeto | Repositório |
+| **Backlog** | Material de planejamento | Ideação, Protótipo, Lista de Eventos |
+| **Em andamento** | Tarefas sendo feitas no momento | — |
+| **Em teste/revisão** | Tarefas prontas, sendo conferidas | Revisão cruzada do código |
+| **Concluído** | Tarefas terminadas | Modelar e criar o banco SQLite; Criar rotas REST de livros; Implementar login com token (`/api/login`); Implementar autorização (`exigirLogin` e `exigirAdmin`); Criar o frontend (`index.html`, `style.css`, `app.js`); Escrever o README e subir no GitHub |
+
+Os cartões têm etiquetas coloridas por tipo de tarefa. Na revisão cruzada, uma integrante confere o código feito pela outra antes de a tarefa ser dada como concluída.
 
 ## Git
 
@@ -72,7 +116,16 @@ Depois, a cada mudança: `git add .`, `git commit -m "o que mudou"` e `git push`
 
 ## Publicação na AWS (EC2)
 
-O sistema roda em uma instância EC2 (Amazon Linux).
+O sistema roda na nuvem, em uma instância EC2 da AWS com Amazon Linux. A instância tem o Node.js e o Git instalados. O código vem do repositório no GitHub, e o servidor fica no ar na porta 3000. O banco SQLite (`database/biblioteca.db`) fica no próprio disco da instância.
+
+Os testes com Selenium também rodam na instância: lá o Chrome funciona sem janela (modo *headless*).
+
+```
+Navegador do usuário  --->  AWS EC2 (porta 3000)  --->  Node.js + Express  --->  SQLite
+                                   ^
+                                   |  git pull
+                                GitHub
+```
 
 ### 1. Preparar a instância
 
