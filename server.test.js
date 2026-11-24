@@ -10,6 +10,7 @@ process.env.BANCO = ':memory:';
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { Builder, By, until } = require('selenium-webdriver');
+const chrome = require('selenium-webdriver/chrome');
 const app = require('./server');
 
 let servidor;
@@ -80,7 +81,13 @@ async function abrirNovoLivro() {
   await esperar('#form-livro');
 }
 
-async function preencherLivro({ titulo, autor = 'Autor de teste', editora = 'Editora de teste', ano = '2024', exemplares = '2' }) {
+async function preencherLivro({
+  titulo,
+  autor = 'Autor de teste',
+  editora = 'Editora de teste',
+  ano = '2024',
+  exemplares = '2'
+}) {
   if (titulo !== undefined) await preencher('#titulo', titulo);
   await preencher('#autor', autor);
   await preencher('#editora', editora);
@@ -104,7 +111,18 @@ before(async () => {
   await new Promise((pronto) => servidor.once('listening', pronto));
   endereco = `http://localhost:${servidor.address().port}`;
 
-  driver = await new Builder().forBrowser('chrome').build();
+  // Configuração do Chrome para execução na EC2.
+  const opcoes = new chrome.Options();
+
+  opcoes.addArguments('--headless=new');
+  opcoes.addArguments('--no-sandbox');
+  opcoes.addArguments('--disable-dev-shm-usage');
+
+  driver = await new Builder()
+    .forBrowser('chrome')
+    .setChromeOptions(opcoes)
+    .build();
+
   await driver.manage().window().setRect({ width: 1365, height: 900 });
 });
 
