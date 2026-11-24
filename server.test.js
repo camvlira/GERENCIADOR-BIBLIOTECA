@@ -1,9 +1,9 @@
-// =====================================================================
-// server.test.js — testes de interface com Selenium
-// Para rodar: npm test
-// O servidor usa um banco em memória: não altera database/biblioteca.db.
-// Requer Google Chrome instalado.
-// =====================================================================
+ // =====================================================================
+ // server.test.js — testes de interface com Selenium
+ // Para rodar: npm test
+ // O servidor usa um banco em memória: não altera database/biblioteca.db.
+ // Requer Google Chrome instalado.
+ // =====================================================================
 
 process.env.BANCO = ':memory:';
 
@@ -111,12 +111,15 @@ before(async () => {
   await new Promise((pronto) => servidor.once('listening', pronto));
   endereco = `http://localhost:${servidor.address().port}`;
 
-  // Configuração do Chrome para execução na EC2.
+  // Windows: abre o Chrome normalmente.
+  // Linux/EC2: executa o Chrome sem janela.
   const opcoes = new chrome.Options();
 
-  opcoes.addArguments('--headless=new');
-  opcoes.addArguments('--no-sandbox');
-  opcoes.addArguments('--disable-dev-shm-usage');
+  if (process.platform === 'linux') {
+    opcoes.addArguments('--headless=new');
+    opcoes.addArguments('--no-sandbox');
+    opcoes.addArguments('--disable-dev-shm-usage');
+  }
 
   driver = await new Builder()
     .forBrowser('chrome')
