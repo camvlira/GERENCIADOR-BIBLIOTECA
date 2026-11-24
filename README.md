@@ -91,6 +91,8 @@ O `npm install` só precisa ser feito uma vez. Ele instala o Selenium (`selenium
 
 A equipe organizou o trabalho no **Trello**, no quadro **Gerenciador de Biblioteca**, com as duas integrantes como membros. Cada tarefa é um cartão. Os cartões passam pelas listas conforme o trabalho anda, e cada um tem uma checklist com os passos da tarefa.
 
+**Link do Trello:** https://trello.com/invite/b/6b04b20cacd25898c4a073cc/ATTI3d794d661c894411da1942a8b0ccfec38E76383C/gerenciador-de-biblioteca
+
 | Lista | Para que serve | Cartões |
 |---|---|---|
 | **Informações** | Referências do projeto | Repositório |
